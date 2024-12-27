@@ -6,7 +6,6 @@ use tokio::net::TcpStream;
 use regex::Regex;
 
 
-
 #[tokio::main]
 async fn main() {
 
@@ -37,17 +36,16 @@ async fn main() {
                 let pixel = image::Rgba([255, 255, 255, 255]);
                 new_background.put_pixel(x, y, pixel);
             } else {
-                let bit = bits[bit_index];
                 let mut new_pixel = [255, 255, 255, 255];
                 for i in 0..4 {
+                    let bit = bits[bit_index];
                     if bit == true {
                         new_pixel[i] = new_pixel[i] - 1;
-                        new_background.put_pixel(x, y, image::Rgba(new_pixel));
-                    } else {
-                        new_background.put_pixel(x, y, image::Rgba([255, 255, 255, 255]));
                     }
+                    bit_index += 1;
                 }
-                bit_index += 1;
+                new_background.put_pixel(x, y, image::Rgba(new_pixel));
+                
             }
         }
     }
@@ -64,12 +62,13 @@ async fn main() {
         let (mut server_stream, _socks) = server.accept().await.unwrap();
         let n = server_stream.read(&mut receive_server).await.unwrap();
         let server_text = String::from_utf8(receive_server[..n].to_vec()).unwrap();
-        if server_text.contains("/"){
+        if server_text.contains("/////"){
             let mut background_file = File::open(background_filename).unwrap();
             let mut file_bytes = Vec::new();
             background_file.read_to_end(&mut file_bytes).unwrap();
-            let response = [format!("HTTP/1.1 200 OK\nContent-Type: application/octet-stream\nContent-Length: {}\n", file_bytes.len()).as_bytes(),file_bytes.as_slice()].concat();
-            let _ = server_stream.write_all(&response);
+            let response = [format!("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n", file_bytes.len()).as_bytes(),file_bytes.as_slice()].concat();
+            let _ = server_stream.write_all(&response).await;
+            continue;
         }
         let mut client_stream = TcpStream::connect(server_address).await.unwrap();
         client_stream.write_all(request.to_string().as_bytes()).await.unwrap();
@@ -77,7 +76,7 @@ async fn main() {
         let client_text = String::from_utf8(receive_client[..n].to_vec()).unwrap();
         let start_html = client_text.find("<html>").unwrap();
         let end_html = client_text.find("</html>").unwrap();
-        let mut client_text = client_text[start_html+7..end_html+7].to_string();
+        let mut client_text = client_text[start_html..end_html+7].to_string();
         let mut modified_text = client_text.clone();
 
         // Find all matches
@@ -87,7 +86,7 @@ async fn main() {
                 // Capture group 2 contains the label
                 if let Some(label) = capture.get(2) {
                     let new_link = if label.as_str() == "../" {
-                        format!("<a href=\"{}\">{}</a>", label.as_str(), label.as_str())
+                        format!("<a href=\"././/\">{}</a>", label.as_str())
                     } else {
                         format!("<a href=\"http://{}/{}\">{}</a>", server_address, label.as_str(), label.as_str())
                     };
@@ -103,10 +102,10 @@ async fn main() {
         client_text = modified_text.replace("<body>", "");
         client_text = client_text.replace("<head><title>Index of /</title></head>", "");
 
-        let response = "HTTP/1.1 200 OK\nContent-Type text/html\n";
-        let html_doc = format!("<html>\n<head><title>Index of /</title></head>\n<body style='width: {}px; height: {}px; background-image: url(\"{}\"); position: relative;'>\n{}", width, height, background_filename,  client_text);
-        let response = response.to_owned() + &html_doc;
-        //println!("{}", response);
+        let response = "HTTP/1.1 200 OK\r\nContent-Type text/html\r\n";
+        let html_doc = format!("{}", String::from_utf8([response.as_bytes(), client_text.as_bytes()].concat().to_vec()).unwrap());
+        let response = &html_doc;
+        println!("{}", response);
         server_stream.write_all(response.as_bytes()).await.unwrap();
     }
     
@@ -121,7 +120,7 @@ fn read_bit_stream(file_path: &str) -> Vec<bool> {
 
         // Convert each byte into bits
         for byte in buffer {
-            for bit in (0..8).rev() { // Extract bits from most significant to least significant
+            for bit in (0..8){ //.rev() { // uncomment if you work with windows.
                 bit_stream.push((byte & (1 << bit)) != 0);
             }
         }
