@@ -6,19 +6,21 @@ use tokio::net::TcpStream;
 use regex::Regex;
 
 
+
 #[tokio::main]
 async fn main() {
 
     let background_filename = "background.png";
     let server_address = "148.113.201.63:80"; // Change to your desired server
-
+    let server_ip: Vec<_> = server_address.split(":").collect();
+    let server_ip = server_ip[0];
     // Create a new image with the same dimensions as the body element
     let width = 1080; // replace with your width
     let height = 2244; // replace with your height
-    let request = "GET / HTTP/1.1\r\n\
-                   Host: 148.113.201.63\r\n\
+    let request = format!("GET / HTTP/1.1\r\n\
+                   Host: {}\r\n\
                    Connection: close\r\n\
-                   \r\n";
+                   \r\n", server_ip);
     
     println!("Reading the bits...");
     // Read the bit stream ile
@@ -51,7 +53,7 @@ async fn main() {
     }
     
     // save the modded background
-    let _ = image::save_buffer_with_format("background.png", &new_background, width, height, image::ColorType::Rgba8, image::ImageFormat::Png);
+    let _ = image::save_buffer_with_format(background_filename, &new_background, width, height, image::ColorType::Rgba8, image::ImageFormat::Png);
     // Serve the modified image
     println!("Serving...Modded html");
     let server = tokio::net::TcpListener::bind("127.0.0.1:8080").await.unwrap();
@@ -60,7 +62,15 @@ async fn main() {
         let mut receive_server:[u8;65535] = [0;65535];
         let mut receive_client:[u8;65535] = [0;65535];
         let (mut server_stream, _socks) = server.accept().await.unwrap();
-        let _n = server_stream.read(&mut receive_server).await.unwrap();
+        let n = server_stream.read(&mut receive_server).await.unwrap();
+        let server_text = String::from_utf8(receive_server[..n].to_vec()).unwrap();
+        if server_text.contains("/"){
+            let mut background_file = File::open(background_filename).unwrap();
+            let mut file_bytes = Vec::new();
+            background_file.read_to_end(&mut file_bytes).unwrap();
+            let response = [format!("HTTP/1.1 200 OK\nContent-Type: application/octet-stream\nContent-Length: {}\n", file_bytes.len()).as_bytes(),file_bytes.as_slice()].concat();
+            let _ = server_stream.write_all(&response);
+        }
         let mut client_stream = TcpStream::connect(server_address).await.unwrap();
         client_stream.write_all(request.to_string().as_bytes()).await.unwrap();
         let n = client_stream.read(&mut receive_client).await.unwrap();
@@ -73,15 +83,19 @@ async fn main() {
         // Find all matches
         for capture in re.captures_iter(&client_text) {
             // Capture group 1 contains the URL
-            if let Some(url) = capture.get(1) {
+            if let Some(_url) = capture.get(1) {
                 // Capture group 2 contains the label
                 if let Some(label) = capture.get(2) {
                     let new_link = if label.as_str() == "../" {
-                        format!("<a href=\"http://{}/\">{}</a>", server_address, label.as_str())
+                        format!("<a href=\"{}\">{}</a>", label.as_str(), label.as_str())
                     } else {
                         format!("<a href=\"http://{}/{}\">{}</a>", server_address, label.as_str(), label.as_str())
                     };
-                    modified_text = client_text.replace(&format!("<a href=\"{}\">{}</a>", label.as_str(), label.as_str()), &new_link);
+                    if label.as_str() == "../"{
+                        modified_text = client_text.replace(&format!("<a href=\"{}\">{}</a>", label.as_str(), label.as_str()), &new_link);
+                    } else {
+                        modified_text = modified_text.replace(&format!("<a href=\"{}\">{}</a>", label.as_str(), label.as_str()), &new_link);
+                    }
                 }
             }
         }
@@ -92,7 +106,8 @@ async fn main() {
         let response = "HTTP/1.1 200 OK\nContent-Type text/html\n";
         let html_doc = format!("<html>\n<head><title>Index of /</title></head>\n<body style='width: {}px; height: {}px; background-image: url(\"{}\"); position: relative;'>\n{}", width, height, background_filename,  client_text);
         let response = response.to_owned() + &html_doc;
-        server_stream.write_all(response.to_string().as_bytes()).await.unwrap();
+        //println!("{}", response);
+        server_stream.write_all(response.as_bytes()).await.unwrap();
     }
     
 }
