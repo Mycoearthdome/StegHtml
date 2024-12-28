@@ -1,12 +1,13 @@
 use tokio;
 use tokio::io::{AsyncWriteExt, AsyncReadExt};
 use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::{BufReader, Read, Write};
 use tokio::net::TcpStream;
 use regex::Regex;
 use clap::{Parser, Subcommand};
 use std::io::Cursor;
 use image::GenericImageView;
+use std::io;
 
 #[derive(Parser)]
 #[command(name = "StegHtml")]
@@ -182,7 +183,7 @@ async fn main() {
             let re = Regex::new(r#"<a\s+href=["']?([^"'>]+)["']?>(.*?)</a>"#).unwrap();
             loop{
                 let mut receive_server:[u8;65535] = [0;65535];
-                let mut receive_client:[u8;65535] = [0;65535];
+                let mut receive_client: Vec<u8> = Vec::new();
                 let (mut server_stream, _socks) = server.accept().await.unwrap();
                 let n = server_stream.read(&mut receive_server).await.unwrap();
                 let server_text = String::from_utf8(receive_server[..n].to_vec()).unwrap();
@@ -196,7 +197,7 @@ async fn main() {
                 }
                 let mut client_stream = TcpStream::connect(&server_address).await.unwrap();
                 client_stream.write_all(request.to_string().as_bytes()).await.unwrap();
-                let n = client_stream.read(&mut receive_client).await.unwrap();
+                let n = client_stream.read_to_end(&mut receive_client).await.unwrap();
                 let client_text = String::from_utf8(receive_client[..n].to_vec()).unwrap();
                 let start_html = client_text.find("<html>").unwrap();
                 let end_html = client_text.find("</html>").unwrap();
